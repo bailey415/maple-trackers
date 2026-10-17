@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mesos Tracker</title>
+<style>
+  :root {
+    --page: #2a2118;
+    --card: #fff8ec;
+    --ink: #3b2a1a;
+    --muted: #8a7560;
+    --head: #6b4423;
+    --head2: #4f301a;
+    --orange: #f29a1f;
+    --orange-dark: #c8740a;
+    --gold: #e8b923;
+    --gold-dark: #b8860b;
+    --line: #ead9bf;
+    --green: #3fbf5a;
+    --grey: #a99b8a;
+    --red: #c4472c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--page); color: var(--ink);
+    font: 14px/1.4 "Segoe UI", system-ui, -apple-system, sans-serif;
+    display: flex; justify-content: center; align-items: flex-start; padding: 32px 16px;
+  }
+  .card {
+    width: 100%; max-width: 440px; background: var(--card); border-radius: 14px;
+    overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,.45);
+  }
+  .head {
+    background: linear-gradient(var(--head), var(--head2)); color: #fff;
+    display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+  }
+  .coin {
+    width: 46px; height: 46px; border-radius: 50%; flex: none;
+    background: radial-gradient(circle at 35% 30%, #fff2a8, var(--gold) 45%, var(--gold-dark));
+    border: 2px solid #ffe08a; display: grid; place-items: center;
+    font-weight: 800; color: #7a5200; font-size: 20px;
+  }
+  .who { flex: 1; min-width: 0; }
+  .name { font-size: 17px; font-weight: 700; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .status { font-size: 12px; opacity: .9; display: flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--grey); }
+  .dot.on { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .body { padding: 16px; }
+  .total { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; font-weight: 600; color: var(--muted); }
+  .total b { font-size: 18px; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .spark { margin: 14px 0 4px; height: 56px; width: 100%; display: block; }
+  .caption { font-size: 12px; color: var(--muted); }
+  .big { margin: 14px 0 2px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .big b { font-size: 40px; line-height: 1; font-variant-numeric: tabular-nums; }
+  .big span { font-size: 15px; font-weight: 600; color: var(--orange-dark); }
+  .sub { font-size: 12px; color: var(--muted); min-height: 18px; }
+  .tabs, .wins { display: flex; gap: 6px; margin-top: 14px; flex-wrap: wrap; }
+  .tabs button, .wins button {
+    font: inherit; border: 1px solid var(--line); background: #fff; color: var(--ink);
+    border-radius: 999px; padding: 6px 12px; cursor: pointer; font-weight: 600;
+  }
+  .tabs button { flex: 1; border-radius: 8px; }
+  .tabs button.on, .wins button.on { background: var(--orange); border-color: var(--orange-dark); color: #fff; }
+  .wins button { font-size: 12px; padding: 4px 10px; }
+  .foot { padding: 10px 16px; border-top: 1px solid var(--line); font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; }
+  .edit { display: none; gap: 6px; margin-top: 6px; }
+  .edit.show { display: flex; }
+  .edit input, .check input { font: inherit; width: 100%; padding: 4px 6px; border-radius: 6px; border: 1px solid #ffd08a; }
+  .edit button, .check button { font: inherit; border: 0; border-radius: 6px; background: var(--orange); color: #fff; padding: 4px 10px; cursor: pointer; white-space: nowrap; }
+  .check {
+    display: none; margin: 0 0 14px; padding: 12px; border-radius: 10px;
+    background: #fff1d6; border: 1px solid #f3c77a;
+  }
+  .check.show { display: block; }
+  .check p { margin: 0 0 8px; font-size: 13px; }
+  .check img { display: block; max-width: 100%; image-rendering: pixelated; border-radius: 4px; margin-bottom: 8px; }
+  .check .row { display: flex; gap: 6px; }
+  .check .err { color: var(--red); font-size: 12px; margin-top: 6px; min-height: 1em; }
+  .check .note { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .spent { color: var(--red); }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="head">
+    <div class="coin">$</div>
+    <div class="who">
+      <div class="name" id="name" title="Click to rename">…</div>
+      <div class="status"><span class="dot" id="dot"></span><span id="stat">Waiting for game</span></div>
+      <div class="edit" id="edit"><input id="editIn" autocomplete="off"><button id="editOk">Save</button></div>
+    </div>
+  </div>
+  <div class="body">
+    <div class="check" id="check">
+      <p>Quick check — I'm still learning a few digits. Does your inventory say <b id="ckText"></b>?</p>
+      <img id="ckImg" alt="Meso box as the tracker sees it">
+      <div class="row">
+        <button id="ckYes">Yes</button>
+        <input id="ckIn" placeholder="No — it says…" autocomplete="off" inputmode="numeric">
+        <button id="ckFix">Fix</button>
+      </div>
+      <div class="err" id="ckErr"></div>
+      <div class="note" id="ckNote"></div>
+    </div>
+
+    <div class="total"><span>MESOS</span><b id="total">—</b></div>
+
+    <svg class="spark" id="spark" viewBox="0 0 400 56" preserveAspectRatio="none"></svg>
+    <div class="caption" id="caption">—</div>
+
+    <div class="big"><b id="bigv">—</b><span id="bigs"></span></div>
+    <div class="sub" id="sub"></div>
+    <div class="wins" id="wins"></div>
+
+    <div class="tabs" id="tabs">
+      <button data-tab="rate" class="on">Mesos/hour</button>
+      <button data-tab="today">Today's mesos</button>
+      <button data-tab="spent">Spent</button>
+    </div>
+  </div>
+  <div class="foot"><span>updates every 30s</span><span id="ago"></span></div>
+</div>
+
+<script>
+const WINS = [5, 10, 15, 30];
+let tab = "rate", win = 10, S = null, checkId = null;
+try { tab = localStorage.getItem("mtab") || tab; win = +localStorage.getItem("mwin") || win; } catch (e) {}
+const $ = id => document.getElementById(id);
+
+function short(n) {
+  if (n == null || !isFinite(n)) return "—";
+  const a = Math.abs(n), s = n < 0 ? "-" : "";
+  if (a >= 1e9) return s + (a / 1e9).toFixed(2) + "B";
+  if (a >= 1e6) return s + (a / 1e6).toFixed(a >= 1e8 ? 0 : 2) + "M";
+  if (a >= 1e3) return s + (a / 1e3).toFixed(a >= 1e5 ? 0 : 1) + "K";
+  return s + Math.round(a);
+}
+const comma = n => n == null ? "—" : Math.round(n).toLocaleString("en-US");
+function dur(s) {
+  if (s == null || !isFinite(s) || s < 0) return null;
+  s = Math.round(s / 60);
+  const h = Math.floor(s / 60), m = s % 60;
+  return h ? `${h}h ${m}m` : `${m}m`;
+}
+
+function spark(vals) {
+  const svg = $("spark");
+  if (!vals || vals.length < 2) { svg.innerHTML = ""; return; }
+  const W = 400, H = 56, p = 3;
+  const lo = Math.min(0, ...vals), hi = Math.max(...vals, lo + 1);
+  const pts = vals.map((v, i) => [i * W / (vals.length - 1), H - p - (v - lo) / (hi - lo) * (H - 2 * p)]);
+  const line = pts.map((q, i) => (i ? "L" : "M") + q[0].toFixed(1) + " " + q[1].toFixed(1)).join(" ");
+  svg.innerHTML =
+    `<defs><linearGradient id="g" x1="0" x2="0" y1="0" y2="1">
+       <stop offset="0" stop-color="#e8b923" stop-opacity=".4"/><stop offset="1" stop-color="#e8b923" stop-opacity="0"/></linearGradient></defs>
+     <path d="${line} L${W} ${H} L0 ${H} Z" fill="url(#g)"/>
+     <path d="${line}" fill="none" stroke="#c8920a" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>`;
+}
+
+function render() {
+  if (!S) return;
+  $("name").textContent = S.name || "My character";
+  $("dot").className = "dot" + (S.on_screen ? " on" : "");
+  $("stat").textContent = S.on_screen ? "Inventory on screen" : (S.last_seen ? "Inventory not visible" : "Waiting for inventory");
+  $("total").textContent = comma(S.mesos);
+
+  const r = S.rates[win] || {};
+  $("caption").textContent = `${short(S.today.gained)} today` +
+    (r.per_h != null ? ` · ${short(r.per_h)}/h last ${win}m` : "");
+
+  $("wins").style.display = tab === "rate" ? "" : "none";
+  $("wins").innerHTML = WINS.map(m => `<button data-win="${m}" class="${m === win ? "on" : ""}">last ${m}m</button>`).join("");
+
+  if (tab === "rate") {
+    $("bigv").textContent = short(r.per_h);
+    $("bigs").textContent = r.per_h == null ? "" : "mesos/h";
+    $("sub").textContent = r.per_h == null
+      ? "Collecting data — keep your inventory open for a minute"
+      : `${comma(r.gained)} mesos over ${Math.max(1, Math.round(r.minutes))} min of play`;
+    spark(S.rate_spark);
+  } else if (tab === "today") {
+    $("bigv").textContent = short(S.today.gained);
+    $("bigs").textContent = "picked up today";
+    const played = dur(S.today.minutes * 60);
+    $("sub").innerHTML = `${comma(S.today.gained)} gained · <span class="spent">${comma(S.today.spent)} spent</span> · net ${comma(S.today.net)}` +
+      (played ? ` · ${played} tracked` : "");
+    spark(S.today.spark);
+  } else {
+    $("bigv").textContent = short(S.today.spent);
+    $("bigs").textContent = "spent today";
+    $("sub").textContent = `Last ${win}m: ${comma(r.spent)} spent · net today ${comma(S.today.net)}`;
+    spark(S.today.spark);
+  }
+  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
+
+  const c = S.check;
+  if (c) {
+    if (c.id !== checkId) {
+      checkId = c.id;
+      $("ckText").textContent = c.text;
+      $("ckImg").src = "data:image/png;base64," + c.img;
+      $("ckIn").value = "";
+      $("ckErr").textContent = "";
+    }
+    $("ckNote").textContent = `Digits still to learn: ${S.missing_digits.join(" ")}. Each "Yes" teaches every digit in that number.`;
+    $("check").classList.add("show");
+  } else {
+    $("check").classList.remove("show");
+  }
+  tickAgo();
+}
+
+function tickAgo() {
+  if (!S || !S.last_seen) { $("ago").textContent = ""; return; }
+  const s = Math.max(0, Math.round(Date.now() / 1000 - S.last_seen));
+  $("ago").textContent = s < 5 ? "reading live" : `last read ${s >= 60 ? dur(s) : s + "s"} ago`;
+}
+
+async function load() {
+  try {
+    const res = await fetch("/api/state", { cache: "no-store" });
+    S = await res.json();
+    render();
+  } catch (e) {
+    $("stat").textContent = "Tracker not running";
+    $("dot").className = "dot";
+  }
+}
+
+async function confirmRead(text) {
+  $("ckErr").textContent = "";
+  const res = await fetch("/api/confirm", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: checkId, text }) });
+  if (!res.ok) { $("ckErr").textContent = await res.text(); }
+  load();
+}
+$("ckYes").onclick = () => confirmRead($("ckText").textContent);
+$("ckFix").onclick = () => { const v = $("ckIn").value.trim(); if (v) confirmRead(v); };
+$("ckIn").onkeydown = e => { if (e.key === "Enter") $("ckFix").click(); };
+
+$("tabs").onclick = e => {
+  const b = e.target.closest("button"); if (!b) return;
+  tab = b.dataset.tab; try { localStorage.setItem("mtab", tab); } catch (_) {}
+  render();
+};
+$("wins").onclick = e => {
+  const b = e.target.closest("button"); if (!b) return;
+  win = +b.dataset.win; try { localStorage.setItem("mwin", win); } catch (_) {}
+  render();
+};
+$("name").onclick = () => {
+  $("edit").classList.add("show"); $("editIn").value = S && S.name || ""; $("editIn").focus();
+};
+async function saveName() {
+  const v = $("editIn").value.trim();
+  if (v) await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: v }) });
+  $("edit").classList.remove("show"); load();
+}
+$("editOk").onclick = saveName;
+$("editIn").onkeydown = e => { if (e.key === "Enter") saveName(); if (e.key === "Escape") $("edit").classList.remove("show"); };
+
+load();
+setInterval(load, 30000);
+setInterval(tickAgo, 1000);
+// while a check is waiting, refresh faster so the picture matches the game
+setInterval(() => { if (S && S.check) load(); }, 3000);
+</script>
+</body>
+</html>

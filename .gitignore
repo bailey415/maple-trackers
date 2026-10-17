@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+data/
+tracker_settings.json
+*.tmp

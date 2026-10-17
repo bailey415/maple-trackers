@@ -1,0 +1,13 @@
+@echo off
+cd /d "%~dp0"
+title EXP Tracker
+echo Checking libraries ...
+python -m pip install --quiet --disable-pip-version-check mss opencv-python numpy pywin32
+if errorlevel 1 (
+    echo Library install FAILED - see the error above.
+    pause
+    exit /b 1
+)
+echo.
+python exp_tracker.py
+pause
