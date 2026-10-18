@@ -28,6 +28,24 @@ FONT = {
     ']': '##/.#/.#/.#/.#/.#/##',
     '%': '.#....#/#.#..#./.#..#../...#.../..#..#./.#..#.#/#....#.',
 }
+# The "EXP." label just left of the numbers (rows y-17..y-6, cols x0..x0+21).
+# Checking it makes sure we're reading from the true start of the number,
+# not from a spot shifted into the middle of it.
+LABEL = np.array([[c == '#' for c in row] for row in (
+    '.....................',
+    '######.##..###.######',
+    '##.....###.##..##..##',
+    '##......#####..##..##',
+    '#####...####...##..##',
+    '#####....###...######',
+    '##......####...###...',
+    '##.....######..##....',
+    '######.###.###.##..##',
+    '#########..###.##..##',
+    '.....................',
+    '.....................')], np.uint8)
+LABEL_MAX_DIFF = 20
+
 TEMPLATES = [(ch, np.array([[c == '#' for c in row] for row in s.split('/')], np.uint8))
              for ch, s in FONT.items()]
 
@@ -126,7 +144,18 @@ def _match(g):
     return best[1]
 
 
+def _label_ok(frame, y, x0):
+    if y - 17 < 0 or x0 < 0:
+        return False
+    c = frame[y - 17:y - 5, x0:x0 + 21]
+    if c.shape[:2] != LABEL.shape:
+        return False
+    return int(((c.max(2) > INK).astype(np.uint8) != LABEL).sum()) <= LABEL_MAX_DIFF
+
+
 def _read_at(frame, y, x0):
+    if not _label_ok(frame, y, x0):
+        return None
     gs = _glyphs(frame, y, x0)
     if not gs:
         return None

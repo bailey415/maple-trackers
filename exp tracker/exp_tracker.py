@@ -140,6 +140,7 @@ class Tracker:
         self.last_seen = 0.0
         self.last_logged = 0.0
         self.pending = None          # read waiting for a second matching read
+        self.mismatch = []           # recent readings that don't fit the level
         self.level_since = None
         DATA.mkdir(exist_ok=True)
         self._replay()
@@ -221,9 +222,20 @@ class Tracker:
                     except Exception:
                         continue
         rows.sort()
+        skipped = 0
         for t, exp, pct, lv in rows:
-            if t >= start:
-                self._apply(t, exp, pct, lv, replay=True)
+            if t < start:
+                continue
+            # skip saved misreads (numbers that don't fit the level's EXP)
+            if lv in self.need and pct >= 1 and self.last and self.last[3] == lv:
+                lo, hi = self.need[lv]
+                implied = exp * 100.0 / pct
+                if implied < lo * 0.98 or implied > hi * 1.02:
+                    skipped += 1
+                    continue
+            self._apply(t, exp, pct, lv, replay=True)
+        if skipped:
+            print(f"skipped {skipped} bad readings in the log")
         if self.last:
             self.last_logged = self.last[0]
             if self.level is None and self.last[3] is not None:
@@ -261,14 +273,29 @@ class Tracker:
             wrapped = self.last is not None and pct < self.last[2] - WRAP_DROP_PCT
             dropped = self.last is not None and exp < self.last[1]
             fits = need is not None and abs(exp * 100.0 / need - pct) <= 0.05
+            if need is not None and not fits and not wrapped:
+                # The numbers don't match this level's EXP requirement. That's
+                # almost always a misread, so ignore it - unless it keeps
+                # happening consistently for a minute (e.g. you levelled up
+                # while the tracker was closed).
+                if not self._mismatch_settled(t, exp, pct, need):
+                    return
+                self.need.pop(self.level, None)
+                implied = exp * 100.0 / pct if pct > 0 else need
+                if implied > need * 1.02 and self.level is not None:
+                    self.s["level"] = self.level + 1
+                    save_settings(self.s)
+                    print(f"Level changed while away -> {self.level}")
+                self.last = None                   # don't count a jump as EXP
+                need = None
+                fits = True
+            self.mismatch = []
             if not fits or wrapped or dropped:
                 confirmed = prev is not None and (
                     prev == (exp, pct) or
                     (0 <= prev[0] <= exp and prev[1] <= pct and _same_need(prev, (exp, pct))))
                 if not confirmed:
                     return
-                if not fits and not wrapped and not dropped and need is not None:
-                    self.need.pop(self.level, None)   # confirmed: re-learn it
             before = self.level
             after = self._apply(t, exp, pct, self.level)
             if after != before:
@@ -276,6 +303,17 @@ class Tracker:
                 save_settings(self.s)
                 print(f"LEVEL UP -> {after}")
             self._log(t, exp, pct, self.level)
+
+    def _mismatch_settled(self, t, exp, pct, need):
+        """True once odd readings have agreed with each other for a minute."""
+        if pct <= 0 or exp * 100.0 / pct < need * 0.5:
+            self.mismatch = []
+            return False                    # far too small: a cut-off number
+        m = self.mismatch
+        if m and not (_same_need(m[-1][1:], (exp, pct)) and m[-1][1] <= exp):
+            m.clear()
+        m.append((t, exp, pct))
+        return len(m) >= 5 and t - m[0][0] >= 60
 
     def set_level(self, level):
         with self.lock:
