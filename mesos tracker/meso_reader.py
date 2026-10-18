@@ -37,6 +37,28 @@ WHITE = 245        # box background
 INK = 120          # text pixels are darker than this
 
 
+VIEWS = ("as-is", "16:9", "16:9-sharp", "1080p")
+
+
+def view(frame, key):
+    """The frame as-is, or undoing a stretch GeForce NOW may have applied
+    (a 16:9 game stretched to fill a 16:10 screen such as 1920x1200)."""
+    h, w = frame.shape[:2]
+    if key == "as-is":
+        return frame
+    if key in ("16:9", "16:9-sharp"):
+        h2 = round(w * 9 / 16)
+        if abs(h2 - h) < 4:
+            return None
+        interp = cv2.INTER_AREA if key == "16:9" else cv2.INTER_NEAREST
+        return cv2.resize(frame, (w, h2), interpolation=interp)
+    if key == "1080p":
+        if (w, h) == (1920, 1080):
+            return None
+        return cv2.resize(frame, (1920, 1080), interpolation=cv2.INTER_AREA)
+    return None
+
+
 def _arr(s):
     return np.array([[c == '#' for c in row] for row in s.split('/')], np.uint8)
 
@@ -54,6 +76,7 @@ class MesoReader:
         except Exception:
             pass
         self.box = None                       # (frame w, h, x0, y0, x1, y1)
+        self.view = "as-is"
         self.last_glyphs = None
         self.last_crop = None
 
@@ -90,6 +113,8 @@ class MesoReader:
         best.sort()
         if not best or best[0][0] > 8:
             return None, False
+        if len(best) > 1 and best[1][0] - best[0][0] < 2 and best[1][1] != best[0][1]:
+            return None, False            # too close to call
         return best[0][1], False
 
     def learn(self, glyphs, text):
@@ -111,23 +136,35 @@ class MesoReader:
     def find_boxes(frame):
         """White boxes about the size of the meso box: (x0, y0, x1, y1)."""
         white = frame.min(2) > WHITE
-        out = []
-        runs = {}
-        for y in np.where(white.sum(1) >= 100)[0]:
+        runs = []
+        for y in np.where(white.sum(1) >= 60)[0]:
             xs = np.where(white[y])[0]
             sp = np.where(np.diff(xs) > 1)[0]
             for a, b in zip(np.r_[xs[0], xs[sp + 1]], np.r_[xs[sp], xs[-1]]):
                 L = b - a + 1
-                if 100 <= L <= 260:
-                    runs.setdefault((int(a), int(L)), []).append(int(y))
-        for (a, L), ys in runs.items():
-            # the top and bottom rows of the box are completely white
-            ys.sort()
-            for i in range(len(ys)):
-                for j in range(i + 1, len(ys)):
-                    h = ys[j] - ys[i] + 1
-                    if 12 <= h <= 18:
-                        out.append((a, ys[i], a + L, ys[j] + 1))
+                if 60 <= L <= 260:
+                    runs.append((int(y), int(a), int(L)))
+        # A box starts with a fully white row; follow it down while each row
+        # still starts white at the same spot (text, or a comma's tail on a
+        # stretched screen, can split a row, so we don't need it whole).
+        by_row = {}
+        for y, a, L in runs:
+            by_row.setdefault(y, []).append((a, L))
+        out, seen = [], set()
+        for y1, a1, L1 in runs:
+            if L1 < 100:
+                continue
+            if any(abs(a - a1) <= 2 and L >= L1 * 0.3 for a, L in by_row.get(y1 - 1, [])):
+                continue                     # not the top row
+            y = y1
+            while any(abs(a - a1) <= 2 and L >= 0.3 * L1 for a, L in by_row.get(y + 1, [])):
+                y += 1
+            h = y - y1 + 1
+            if 12 <= h <= 22:
+                box = (a1, y1, a1 + L1, y + 1)
+                if box not in seen:
+                    seen.add(box)
+                    out.append(box)
         return out
 
     # ---- reading -------------------------------------------------------
@@ -175,10 +212,99 @@ class MesoReader:
             return None
         return int(text.replace(',', '')), text, sure, gs
 
-    def read(self, frame):
-        """Returns (mesos, text, confirmed) or None if the box isn't visible."""
+    def read(self, frame, prefer=None):
+        """Returns (mesos, text, confirmed) or None if the box isn't visible.
+
+        Like the EXP reader, also tries undoing a 16:10 stretch. `prefer`
+        is the view that worked for the EXP bar, tried first.
+        """
         if frame is None or frame.size == 0:
             return None
+        order = [self.view] + ([prefer] if prefer else []) + list(VIEWS)
+        seen = set()
+        for key in order:
+            if key in seen:
+                continue
+            seen.add(key)
+            img = view(frame, key)
+            if img is None:
+                continue
+            r = self._read_frame(img)
+            if r:
+                self.view = key
+                return r
+        return self._read_stretched(frame)
+
+    # ---- stretched screens (e.g. 1920x1200) ------------------------------
+    def _templates(self):
+        out = {}
+        for ch, s in list(GUESS.items()) + list(SEEN.items()):
+            out.setdefault(ch, []).append(_arr(s))
+        for k, ch in self.learned.items():
+            out.setdefault(ch, []).append(_arr(k))
+        return out
+
+    def _read_stretched(self, frame):
+        """Like the EXP reader: widths stay exact on a stretched screen, so we
+        split characters by blank columns and compare each one with the
+        same character stretched the same way."""
+        h, w = frame.shape[:2]
+        sy = h / (w * 9 / 16)
+        if not 1.02 < sy < 1.4:
+            return None
+        tpls = self._templates()
+        for x0, y0, x1, y1 in self.find_boxes(frame):
+            ink = 255.0 - frame[y0:y1, x0:x1].min(2).astype(np.float32)
+            rows = np.where(ink.max(1) > 120)[0]
+            if len(rows) == 0:
+                continue
+            band = ink[max(0, rows.min() - 2):rows.min() + int(round(ROWS * sy)) + 2]
+            norm = np.clip(band / 255.0, 0, 1).astype(np.float32)
+            cols = norm.max(0) > 0.3
+            segs, x = [], 0
+            while x < len(cols):
+                if cols[x]:
+                    s = x
+                    while x < len(cols) and cols[x]:
+                        x += 1
+                    segs.append((s, x))
+                else:
+                    x += 1
+            if not segs or len(segs) > 16 or any(
+                    segs[i][0] - segs[i - 1][1] > 4 for i in range(1, len(segs))):
+                continue
+            text = ''
+            for s, e in segs:
+                cands = []
+                for ch, bitmaps in tpls.items():
+                    for bm in bitmaps:
+                        if bm.shape[1] != e - s:
+                            continue
+                        t = np.pad(bm.astype(np.float32), ((3, 3), (0, 0)))
+                        t = cv2.resize(t, (t.shape[1], round(t.shape[0] * sy)),
+                                       interpolation=cv2.INTER_LINEAR)
+                        patch = np.pad(norm[:, s:e], ((3, 3), (0, 0)))
+                        if patch.shape[0] < t.shape[0]:
+                            continue
+                        d = float(cv2.matchTemplate(patch, t, cv2.TM_SQDIFF).min()) / t.size
+                        cands.append((d, ch))
+                cands.sort()
+                if not cands or cands[0][0] > 0.06:
+                    text = None
+                    break
+                others = [c for c in cands if c[1] != cands[0][1]]
+                if others and (others[0][0] - cands[0][0]) / (cands[0][0] + 0.002) < 0.12:
+                    text = None
+                    break
+                text += cands[0][1]
+            if text and NUM_RE.match(text):
+                self.last_glyphs = None          # can't learn from blurred pixels
+                self.last_crop = frame[max(0, y0 - 3):y1 + 3, max(0, x0 - 3):x1 + 3].copy()
+                self.view = "as-is"
+                return int(text.replace(',', '')), text, True
+        return None
+
+    def _read_frame(self, frame):
         h, w = frame.shape[:2]
         cands = []
         if self.box and self.box[:2] == (w, h):

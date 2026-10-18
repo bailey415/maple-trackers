@@ -110,7 +110,7 @@ class App:
         return 0
 
     def _read_meso(self, frame, misses):
-        r = self.meso_reader.read(frame)
+        r = self.meso_reader.read(frame, prefer=self.exp_reader.view)
         if not r:
             if misses + 1 == 15:
                 print("Meso box not visible - open your inventory to track mesos")
