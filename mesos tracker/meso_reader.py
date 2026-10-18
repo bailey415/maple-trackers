@@ -16,6 +16,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+import any_size
+
 ROWS = 10          # 8 rows of digit + 2 for the comma's tail
 SEEN = {           # taken from a real screenshot
     '3': '.###./#...#/....#/..##./....#/....#/#...#/.###./...../.....',
@@ -150,7 +152,7 @@ class MesoReader:
             sp = np.where(np.diff(xs) > 1)[0]
             for a, b in zip(np.r_[xs[0], xs[sp + 1]], np.r_[xs[sp], xs[-1]]):
                 L = b - a + 1
-                if 60 <= L <= 260:
+                if 60 <= L <= 520:
                     runs.append((int(y), int(a), int(L)))
         # A box starts with a fully white row; follow it down while each row
         # still starts white at the same spot (text, or a comma's tail on a
@@ -168,7 +170,7 @@ class MesoReader:
             while any(abs(a - a1) <= 2 and L >= 0.3 * L1 for a, L in by_row.get(y + 1, [])):
                 y += 1
             h = y - y1 + 1
-            if 12 <= h <= 22:
+            if 12 <= h <= 45:
                 box = (a1, y1, a1 + L1, y + 1)
                 if box not in seen:
                     seen.add(box)
@@ -235,6 +237,12 @@ class MesoReader:
                 fits += [f"fit:{gw}x{gh}:cubic", f"fit:{gw}x{gh}:linear"]
         order = [self.view] + ([prefer] if prefer and not prefer.startswith(("stretched", "fitsoft")) else []) \
             + list(VIEWS) + fits
+        if self.view == "any-size":
+            r = self._read_any_size(frame)
+            if r:
+                self.misses = 0
+                return r
+            self.view = "as-is"
         seen = set()
         slow = not (self.misses > 3 and self.misses % 5)
         if not slow:
@@ -258,10 +266,40 @@ class MesoReader:
                     break
                 if key.endswith(":cubic"):
                     r = self._read_soft(view(frame, key), 1.0)
+            if not r:
+                r = self._read_any_size(frame)
+                if r:
+                    self.view = "any-size"
             if r:
                 self.misses = 0
                 return r
         self.misses += 1
+        return None
+
+    def _read_any_size(self, frame):
+        """Last resort: the game is drawn at an unusual size. Characters are
+        compared by shape after shrinking them to a standard box."""
+        if getattr(self, "_any_tpl_n", None) != len(self.learned):
+            bitmaps = {}
+            for ch, s in list(GUESS.items()) + list(SEEN.items()):
+                bitmaps.setdefault(ch, []).append(_arr(s))
+            for k, ch in self.learned.items():
+                bitmaps.setdefault(ch, []).append(_arr(k))
+            self._any_tpl = any_size._digit_templates(bitmaps)
+            self._any_tpl_n = len(self.learned)
+        templates = self._any_tpl
+        for x0, y0, x1, y1 in self.find_boxes(frame):
+            box = frame[y0:y1, x0:x1]
+            ink = np.clip((255.0 - box.min(2).astype(np.float32)) / 255.0, 0, 1)
+            rows = np.where(ink.max(1) > 0.45)[0]
+            if len(rows) < 5:
+                continue
+            line = ink[rows.min():rows.max() + 1]
+            text = any_size.read_line(line, templates, 'meso')
+            if text:
+                self.last_glyphs = None          # can't learn from resized pixels
+                self.last_crop = frame[max(0, y0 - 3):y1 + 3, max(0, x0 - 3):x1 + 3].copy()
+                return int(text.replace(',', '')), text, True
         return None
 
     # ---- stretched screens (e.g. 1920x1200) ------------------------------

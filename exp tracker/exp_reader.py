@@ -10,6 +10,8 @@ import re
 import cv2
 import numpy as np
 
+import any_size
+
 # 7-row bitmaps of the status-bar font ('#' = lit pixel).
 FONT = {
     '0': '.###./#...#/#...#/#...#/#...#/#...#/.###.',
@@ -230,6 +232,22 @@ def view(frame, key):
     return None
 
 
+_ANY_TEMPLATES = None
+
+
+def read_any_size(frame):
+    """Last resort for game pictures drawn at an unusual size."""
+    global _ANY_TEMPLATES
+    if _ANY_TEMPLATES is None:
+        _ANY_TEMPLATES = any_size._digit_templates({ch: [t] for ch, t in TEMPLATES})
+    h = frame.shape[0]
+    y0 = int(h * 0.5)
+    sub = frame[y0:].astype(np.int16)
+    B, G, R = sub[..., 0], sub[..., 1], sub[..., 2]
+    tops = _bar_tops((G > 150) & (R > 110) & (B < 90) & (G >= R), y0, 8)
+    return any_size.find_exp_text(frame, tops, _ANY_TEMPLATES)
+
+
 class ExpReader:
     """Remembers where the bar is, so it still reads at 0% after a level-up."""
 
@@ -249,7 +267,7 @@ class ExpReader:
     def _keys(self, frame):
         keys = ["as-is", "stretched"] + fit_keys(frame, self.sizes())
         keys += ["fitsoft:" + k[4:] for k in keys if k.startswith("fit:") and k.endswith(":cubic")]
-        keys += ["16:9-sharp", "1080p", "1920wide"]
+        keys += ["16:9-sharp", "1080p", "1920wide", "any-size"]
         return [self.view] + [k for k in keys if k != self.view]
 
     def read(self, frame):
@@ -269,6 +287,8 @@ class ExpReader:
                 r = self._read_soft(frame, sy) if sy else None
             elif key.startswith("fitsoft:"):
                 r = self._read_soft(view(frame, "fit:" + key[8:]), 1.0)
+            elif key == "any-size":
+                r = read_any_size(frame)
             else:
                 img = view(frame, key)
                 r = self._read(img) if img is not None else None
