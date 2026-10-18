@@ -13,7 +13,12 @@ if errorlevel 1 (
     exit /b 1
 )
 echo.
-python meso_tracker.py
+if exist "..\maple tracker\maple_tracker.py" (
+    echo Opening the combined Maple Tracker - EXP and mesos on one page ...
+    python "..\maple tracker\maple_tracker.py"
+) else (
+    python meso_tracker.py
+)
 pause
 exit /b 0
 

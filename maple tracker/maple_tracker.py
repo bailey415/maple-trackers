@@ -226,15 +226,18 @@ def make_handler(app):
 
 def main():
     app = App()
-    threading.Thread(target=app.loop, daemon=True).start()
     port = int(app.s["port"])
+    # Open the dashboard address first: if another tracker already has it,
+    # stop here instead of reading the game twice in the background.
     try:
         server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(app))
     except OSError:
-        print(f"Port {port} is busy - is the EXP tracker or another Maple Tracker "
-              "already running? Close it and try again.")
+        print()
+        print("Another tracker is already running (it's using the dashboard address).")
+        print("Close every other EXP / Mesos / Maple Tracker black window, then run this again.")
         input("Press Enter to close...")
         return
+    threading.Thread(target=app.loop, daemon=True).start()
     url = f"http://127.0.0.1:{port}/"
     print("Maple Tracker running. Dashboard:", url)
     print("Keep this window open. Open your inventory to track mesos too.")
