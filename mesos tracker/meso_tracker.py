@@ -120,11 +120,24 @@ class Capture:
                     rank = self._rank(title)
                     l, t_, r, b = win32gui.GetWindowRect(h)
                     if rank and r - l > 200 and b - t_ > 200:
-                        found.append((rank, (r - l) * (b - t_), title, (l, t_, r, b)))
+                        found.append((rank, (r - l) * (b - t_), title, h))
             return True
         win32gui.EnumWindows(cb, 0)
         found.sort(reverse=True)
         return found
+
+    @staticmethod
+    def _inside(hwnd):
+        """Screen rectangle of the window's inside (no title bar or borders)."""
+        import win32gui
+        try:
+            _, _, cw, ch = win32gui.GetClientRect(hwnd)
+            x, y = win32gui.ClientToScreen(hwnd, (0, 0))
+            if cw > 200 and ch > 200:
+                return x, y, x + cw, y + ch
+        except Exception:
+            pass
+        return win32gui.GetWindowRect(hwnd)
 
     def failed(self):
         """The current window gave no reading for a while: try the next one."""
@@ -139,10 +152,10 @@ class Capture:
                 print("Game window not found any more.")
             self.title = None
             return None
-        _, _, title, rect = self.candidates[min(self.pick, len(self.candidates) - 1)]
+        _, _, title, hwnd = self.candidates[min(self.pick, len(self.candidates) - 1)]
         if self.sct is None:
             self.sct = mss.mss()
-        l, t, r, b = rect
+        l, t, r, b = self._inside(hwnd)
         # stay inside the virtual screen (windows can hang off the edge)
         mon = self.sct.monitors[0]
         l, t = max(l, mon["left"]), max(t, mon["top"])

@@ -64,7 +64,7 @@ class App:
         self.meso_s = mt.load_settings()
         self.exp = et.Tracker(self.exp_s)
         self.meso = mt.Tracker(self.meso_s)
-        self.exp_reader = ExpReader(self.exp_s.get("anchor"))
+        self.exp_reader = ExpReader(self.exp_s.get("anchor"), self.exp_s.get("game_size"))
         self.meso_reader = MesoReader(FONT)
         self.live = mt.Live()
         self.stop = threading.Event()
@@ -103,14 +103,16 @@ class App:
                 print("EXP bar not visible (game hidden, covered or minimised?)")
             return misses + 1
         self.exp.on_read(time.time(), r[0], r[1])
-        a = self.exp_reader.anchor
-        if a and list(a) != self.exp_s.get("anchor"):
-            self.exp_s["anchor"] = list(a)
+        a, g = self.exp_reader.anchor, self.exp_reader.game_size
+        if (a and list(a) != self.exp_s.get("anchor")) or (g and list(g) != self.exp_s.get("game_size")):
+            self.exp_s["anchor"] = list(a) if a else None
+            self.exp_s["game_size"] = list(g) if g else None
             et.save_settings(self.exp_s)
         return 0
 
     def _read_meso(self, frame, misses):
-        r = self.meso_reader.read(frame, prefer=self.exp_reader.view)
+        r = self.meso_reader.read(frame, prefer=self.exp_reader.view,
+                                  sizes=self.exp_reader.sizes())
         if not r:
             if misses + 1 == 15:
                 print("Meso box not visible - open your inventory to track mesos")

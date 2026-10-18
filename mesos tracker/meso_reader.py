@@ -38,6 +38,8 @@ INK = 120          # text pixels are darker than this
 
 
 VIEWS = ("as-is", "16:9", "16:9-sharp", "1080p")
+GAME_SIZES = ((1366, 768), (1280, 720), (1920, 1080), (1600, 900),
+              (1024, 768), (800, 600))
 
 
 def view(frame, key):
@@ -46,6 +48,11 @@ def view(frame, key):
     h, w = frame.shape[:2]
     if key == "as-is":
         return frame
+    if key.startswith("fit:"):
+        _, size, how = key.split(":")
+        gw, gh = (int(v) for v in size.split("x"))
+        interp = {"cubic": cv2.INTER_CUBIC, "linear": cv2.INTER_LINEAR}.get(how, cv2.INTER_CUBIC)
+        return cv2.resize(frame, (gw, gh), interpolation=interp)
     if key in ("16:9", "16:9-sharp"):
         h2 = round(w * 9 / 16)
         if abs(h2 - h) < 4:
@@ -77,6 +84,7 @@ class MesoReader:
             pass
         self.box = None                       # (frame w, h, x0, y0, x1, y1)
         self.view = "as-is"
+        self.misses = 0
         self.last_glyphs = None
         self.last_crop = None
 
@@ -212,7 +220,7 @@ class MesoReader:
             return None
         return int(text.replace(',', '')), text, sure, gs
 
-    def read(self, frame, prefer=None):
+    def read(self, frame, prefer=None, sizes=None):
         """Returns (mesos, text, confirmed) or None if the box isn't visible.
 
         Like the EXP reader, also tries undoing a 16:10 stretch. `prefer`
@@ -220,8 +228,17 @@ class MesoReader:
         """
         if frame is None or frame.size == 0:
             return None
-        order = [self.view] + ([prefer] if prefer else []) + list(VIEWS)
+        h, w = frame.shape[:2]
+        fits = []
+        for gw, gh in (sizes or GAME_SIZES):
+            if (gw, gh) != (w, h) and gw <= w + 4 and gh <= h + 4:
+                fits += [f"fit:{gw}x{gh}:cubic", f"fit:{gw}x{gh}:linear"]
+        order = [self.view] + ([prefer] if prefer and not prefer.startswith(("stretched", "fitsoft")) else []) \
+            + list(VIEWS) + fits
         seen = set()
+        slow = not (self.misses > 3 and self.misses % 5)
+        if not slow:
+            order = order[:1] + ["as-is"]
         for key in order:
             if key in seen:
                 continue
@@ -232,8 +249,20 @@ class MesoReader:
             r = self._read_frame(img)
             if r:
                 self.view = key
+                self.misses = 0
                 return r
-        return self._read_stretched(frame)
+        if slow:
+            r = self._read_stretched(frame)
+            for key in fits:
+                if r:
+                    break
+                if key.endswith(":cubic"):
+                    r = self._read_soft(view(frame, key), 1.0)
+            if r:
+                self.misses = 0
+                return r
+        self.misses += 1
+        return None
 
     # ---- stretched screens (e.g. 1920x1200) ------------------------------
     def _templates(self):
@@ -245,13 +274,15 @@ class MesoReader:
         return out
 
     def _read_stretched(self, frame):
-        """Like the EXP reader: widths stay exact on a stretched screen, so we
-        split characters by blank columns and compare each one with the
-        same character stretched the same way."""
         h, w = frame.shape[:2]
         sy = h / (w * 9 / 16)
         if not 1.02 < sy < 1.4:
             return None
+        return self._read_soft(frame, sy)
+
+    def _read_soft(self, frame, sy):
+        """Like the EXP reader: split characters by blank columns and compare
+        each one with the same character stretched the same way."""
         tpls = self._templates()
         for x0, y0, x1, y1 in self.find_boxes(frame):
             ink = 255.0 - frame[y0:y1, x0:x1].min(2).astype(np.float32)

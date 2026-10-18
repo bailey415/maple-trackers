@@ -179,6 +179,24 @@ def _read_at(frame, y, x0):
 
 VIEWS = ("as-is", "stretched", "16:9-sharp", "1080p", "1920wide")
 
+# Sizes MapleStory draws at. When the game window is made bigger (or
+# maximised) the picture is stretched to fit; shrinking it back to the size
+# the game really draws at brings the small text back.
+GAME_SIZES = ((1366, 768), (1280, 720), (1920, 1080), (1600, 900),
+              (1024, 768), (800, 600))
+INTERPS = {"cubic": cv2.INTER_CUBIC, "linear": cv2.INTER_LINEAR, "area": cv2.INTER_AREA}
+
+
+def fit_keys(frame, sizes):
+    """'fit:WxH:how' views that shrink a stretched window back to a game size."""
+    h, w = frame.shape[:2]
+    keys = []
+    for gw, gh in sizes:
+        if (gw, gh) == (w, h) or gw > w + 4 or gh > h + 4:
+            continue
+        keys += [f"fit:{gw}x{gh}:cubic", f"fit:{gw}x{gh}:linear"]
+    return keys
+
 
 def view(frame, key):
     """The frame as-is, or undoing a stretch GeForce NOW may have applied.
@@ -190,6 +208,10 @@ def view(frame, key):
     h, w = frame.shape[:2]
     if key == "as-is":
         return frame
+    if key.startswith("fit:"):
+        _, size, how = key.split(":")
+        gw, gh = (int(v) for v in size.split("x"))
+        return cv2.resize(frame, (gw, gh), interpolation=INTERPS.get(how, cv2.INTER_CUBIC))
     if key in ("16:9", "16:9-sharp"):
         h2 = round(w * 9 / 16)
         if abs(h2 - h) < 4:
@@ -211,31 +233,55 @@ def view(frame, key):
 class ExpReader:
     """Remembers where the bar is, so it still reads at 0% after a level-up."""
 
-    def __init__(self, anchor=None):
+    def __init__(self, anchor=None, game_size=None):
         self.anchor = tuple(anchor) if anchor else None   # (w, h, y, x0)
         self.view = "as-is"
         self.soft = None          # (w, h, y, x0) for stretched screens
+        self.game_size = tuple(game_size) if game_size else None
+        self.misses = 0
+
+    def sizes(self):
+        """Game sizes to try, the one seen working first."""
+        if self.game_size:
+            return [self.game_size]
+        return list(GAME_SIZES)
+
+    def _keys(self, frame):
+        keys = ["as-is", "stretched"] + fit_keys(frame, self.sizes())
+        keys += ["fitsoft:" + k[4:] for k in keys if k.startswith("fit:") and k.endswith(":cubic")]
+        keys += ["16:9-sharp", "1080p", "1920wide"]
+        return [self.view] + [k for k in keys if k != self.view]
 
     def read(self, frame):
         """Returns (exp, pct, text) or None if the EXP text isn't visible."""
         if frame is None or frame.size == 0:
             return None
+        h, w = frame.shape[:2]
+        keys = self._keys(frame)
+        # When nothing has been readable for a while (game covered, say),
+        # only do the slow search of every size every 5th check.
+        if self.misses > 3 and self.misses % 5:
+            keys = keys[:2]
         # Try the way that worked last time first, then the others.
-        for key in [self.view] + [k for k in VIEWS if k != self.view]:
+        for key in keys:
             if key == "stretched":
-                r = self._read_stretched(frame)
+                sy = stretch_of(frame)
+                r = self._read_soft(frame, sy) if sy else None
+            elif key.startswith("fitsoft:"):
+                r = self._read_soft(view(frame, "fit:" + key[8:]), 1.0)
             else:
                 img = view(frame, key)
                 r = self._read(img) if img is not None else None
             if r:
                 self.view = key
+                if key == "as-is" and (w, h) != self.game_size:
+                    self.game_size = (w, h)       # the game's real size
+                self.misses = 0
                 return r
+        self.misses += 1
         return None
 
-    def _read_stretched(self, frame):
-        sy = stretch_of(frame)
-        if sy is None:
-            return None
+    def _read_soft(self, frame, sy):
         h, w = frame.shape[:2]
         if self.soft and self.soft[:2] == (w, h):
             r = soft_read_at(frame, self.soft[2], self.soft[3], sy)
