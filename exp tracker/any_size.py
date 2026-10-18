@@ -188,14 +188,26 @@ def find_exp_text(frame, bar_tops, templates):
         segs = _segments(line)
         if len(segs) < 6:
             continue
-        # skip the "EXP." label: it ends at the first wide gap
-        gaps = [segs[i + 1][0] - segs[i][1] for i in range(len(segs) - 1)]
-        small = sorted(gaps)[len(gaps) // 3] if gaps else 1
+        # skip the "EXP." label. It's in a taller bold font, so its letters
+        # start higher than the digits; failing that, it ends at a wide gap.
+        tops = []
+        for a, b in segs:
+            ys = np.where(line[:, a:b].max(1) > 0.35)[0]
+            tops.append(ys.min())
+        later = sorted(tops[len(segs) // 3:])
+        digit_top = later[len(later) // 2]
         cut = None
-        for i, gp in enumerate(gaps[:6]):
-            if gp >= max(3, small * 2.5):
-                cut = i + 1
+        for i in range(min(6, len(segs))):
+            if tops[i] >= digit_top - 1:
+                cut = i if i > 0 else None
                 break
+        if cut is None:
+            gaps = [segs[i + 1][0] - segs[i][1] for i in range(len(segs) - 1)]
+            small = sorted(gaps)[len(gaps) // 3] if gaps else 1
+            for i, gp in enumerate(gaps[:6]):
+                if gp >= max(3, small * 2.5):
+                    cut = i + 1
+                    break
         if cut is None:
             continue
         start = segs[cut][0]
