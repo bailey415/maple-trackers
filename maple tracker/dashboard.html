@@ -196,7 +196,7 @@ function spark(id, vals, color) {
 function renderExp(E) {
   $("lvn").textContent = E.level ?? "?";
   $("dotExp").className = "dot" + (E.on_screen ? " on" : "");
-  $("statExp").textContent = E.on_screen ? "EXP: on screen" : (E.last_seen ? "EXP: not visible" : "EXP: waiting for game");
+  $("statExp").textContent = E.on_screen ? "EXP: on screen" : (!E.window ? "Game window not found" : "Game found — can't see the EXP bar");
   $("expTxt").textContent = E.exp == null ? "—" : `${comma(E.exp)} [${E.pct.toFixed(2)}%]`;
   $("expFill").style.width = (E.pct || 0) + "%";
   const r = E.rates[win] || {}, eta = dur(r.eta_s), tab = tabs.exp;
@@ -228,7 +228,7 @@ function renderExp(E) {
 
 function renderMeso(M) {
   $("dotMeso").className = "dot" + (M.on_screen ? " on" : "");
-  $("statMeso").textContent = M.on_screen ? "Mesos: inventory on screen" : (M.last_seen ? "Mesos: open your inventory" : "Mesos: open your inventory");
+  $("statMeso").textContent = M.on_screen ? "Mesos: inventory on screen" : "Mesos: open your inventory";
   $("mesoTotal").textContent = comma(M.mesos);
   const r = M.rates[win] || {}, tab = tabs.meso;
   $("mesoCap").textContent = `${short(M.today.gained)} today` + (M.today.spent ? ` · ${short(M.today.spent)} spent` : "");

@@ -69,9 +69,24 @@ def midnight(t=None):
 # Screen capture (same as the exp tracker)
 # --------------------------------------------------------------------------
 class Capture:
+    """Finds the game window and screenshots it.
+
+    Picks the most likely game window: a GeForce NOW window showing
+    MapleStory first, then the MapleStory client itself, then any GeForce
+    NOW window. Browser windows that merely mention MapleStory (a wiki
+    tab, say) are skipped. If the chosen window never gives a reading,
+    the next candidate is tried.
+    """
+    BROWSERS = ("google chrome", "mozilla firefox", "microsoft edge", "opera",
+                "brave", "vivaldi", "discord", "notepad", "explorer")
+
     def __init__(self, titles):
         self.titles = [t.lower() for t in titles]
         self.sct = None
+        self.pick = 0                 # which candidate we're using
+        self.title = None             # title of the window being captured
+        self.size = None
+        self.candidates = []
         try:
             ctypes.windll.shcore.SetProcessDpiAwareness(2)
         except Exception:
@@ -80,37 +95,92 @@ class Capture:
             except Exception:
                 pass
 
-    def _window(self):
+    @staticmethod
+    def _rank(title):
+        t = title.lower()
+        gfn, maple = "geforce now" in t, "maplestory" in t
+        if gfn and maple:
+            return 4
+        if t.strip() == "maplestory":
+            return 3                  # the game client itself
+        if gfn:
+            return 2
+        if maple and not any(b in t for b in Capture.BROWSERS):
+            return 1
+        return 0
+
+    def _windows(self):
         import win32gui
         found = []
 
         def cb(h, _):
             if win32gui.IsWindowVisible(h) and not win32gui.IsIconic(h):
-                title = win32gui.GetWindowText(h).lower()
-                if any(t in title for t in self.titles):
+                title = win32gui.GetWindowText(h)
+                if any(t in title.lower() for t in self.titles):
+                    rank = self._rank(title)
                     l, t_, r, b = win32gui.GetWindowRect(h)
-                    if r - l > 200 and b - t_ > 200:
-                        found.append(((r - l) * (b - t_), (l, t_, r, b)))
+                    if rank and r - l > 200 and b - t_ > 200:
+                        found.append((rank, (r - l) * (b - t_), title, (l, t_, r, b)))
             return True
         win32gui.EnumWindows(cb, 0)
-        return max(found)[1] if found else None
+        found.sort(reverse=True)
+        return found
+
+    def failed(self):
+        """The current window gave no reading for a while: try the next one."""
+        if len(self.candidates) > 1:
+            self.pick = (self.pick + 1) % len(self.candidates)
 
     def grab(self):
         import mss
-        rect = self._window()
-        if rect is None:
+        self.candidates = self._windows()
+        if not self.candidates:
+            if self.title is not None:
+                print("Game window not found any more.")
+            self.title = None
             return None
+        _, _, title, rect = self.candidates[min(self.pick, len(self.candidates) - 1)]
         if self.sct is None:
             self.sct = mss.mss()
         l, t, r, b = rect
+        # stay inside the virtual screen (windows can hang off the edge)
         mon = self.sct.monitors[0]
         l, t = max(l, mon["left"]), max(t, mon["top"])
         r = min(r, mon["left"] + mon["width"])
         b = min(b, mon["top"] + mon["height"])
         if r - l < 200 or b - t < 200:
             return None
+        if title != self.title or (r - l, b - t) != self.size:
+            self.title, self.size = title, (r - l, b - t)
+            print(f'Watching window: "{title}" ({r - l}x{b - t})')
         img = self.sct.grab({"left": l, "top": t, "width": r - l, "height": b - t})
         return cv2.cvtColor(np.array(img), cv2.COLOR_BGRA2BGR)
+
+
+class Diagnostics:
+    """Saves a picture of what we captured when nothing can be read."""
+
+    def __init__(self, folder, what):
+        self.folder, self.what = folder, what
+        self.since = time.time()       # last successful read (or start)
+        self.saved = 0.0
+
+    def ok(self):
+        self.since = time.time()
+
+    def miss(self, frame):
+        now = time.time()
+        if frame is None or now - self.since < 20 or now - self.saved < 300:
+            return
+        self.saved = now
+        path = self.folder / "debug_capture.png"
+        try:
+            cv2.imwrite(str(path), frame)
+            print(f"Can't see the {self.what}. Saved what the tracker sees to:")
+            print(f"  {path}")
+            print("  (send that picture to whoever set this up)")
+        except Exception as e:
+            print("could not save debug picture:", e)
 
 
 # --------------------------------------------------------------------------
@@ -127,6 +197,7 @@ class Tracker:
         self.last_seen = 0.0
         self.last_logged = 0.0
         self.pending = None
+        self.window = None
         DATA.mkdir(exist_ok=True)
         self._replay()
 
@@ -250,6 +321,7 @@ class Tracker:
             return {
                 "name": self.s.get("name"),
                 "on_screen": now - self.last_seen < 10,
+                "window": self.window,
                 "last_seen": self.last_seen or None,
                 "mesos": last[1] if last else None,
                 "rates": rates,
@@ -278,14 +350,18 @@ class Live:
 
 def reader_loop(tracker, reader, live, settings, stop):
     cap = Capture(settings["window_titles"])
+    diag = Diagnostics(HERE, "meso box (is your inventory open?)")
     misses = 0
     while not stop.is_set():
         t0 = time.time()
+        frame = None
         try:
             frame = cap.grab()
             r = reader.read(frame) if frame is not None else None
+            tracker.window = cap.title
             if r:
                 misses = 0
+                diag.ok()
                 mesos, text, sure = r
                 tracker.on_read(time.time(), mesos)
                 with live.lock:
@@ -299,8 +375,14 @@ def reader_loop(tracker, reader, live, settings, stop):
                             del live.recent[old]
             else:
                 misses += 1
+                diag.miss(frame)
+                if misses % 5 == 0:
+                    cap.failed()
                 if misses == 15:
-                    print("Meso box not visible - is your inventory open and on screen?")
+                    if cap.title is None:
+                        print("Can't find the game window - is MapleStory open in GeForce NOW?")
+                    else:
+                        print("Meso box not visible - is your inventory open and on screen?")
         except Exception as e:
             print("read error:", e)
         stop.wait(max(0.2, settings["sample_seconds"] - (time.time() - t0)))

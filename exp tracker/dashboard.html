@@ -154,7 +154,7 @@ function render() {
   $("lv").title = S.level ? "Click to change your level" : "Click to set your level";
   $("name").textContent = S.name || "My character";
   $("dot").className = "dot" + (S.on_screen ? " on" : "");
-  $("stat").textContent = S.on_screen ? "On screen" : (S.last_seen ? "Off screen" : "Waiting for game");
+  $("stat").textContent = S.on_screen ? "On screen" : (!S.window ? "Game window not found" : "Game found — can't see the EXP bar");
   $("exptxt").textContent = S.exp == null ? "—" : `${comma(S.exp)} [${S.pct.toFixed(2)}%]`;
   $("fill").style.width = (S.pct || 0) + "%";
 

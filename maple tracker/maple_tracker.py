@@ -72,14 +72,26 @@ class App:
     # ---- reading -------------------------------------------------------
     def loop(self):
         cap = et.Capture(self.s["window_titles"])
+        diag = et.Diagnostics(HERE, "EXP bar")
         exp_miss = meso_miss = 0
         while not self.stop.is_set():
             t0 = time.time()
             try:
                 frame = cap.grab()
-                if frame is not None:
+                self.exp.window = self.meso.window = cap.title
+                if frame is None:
+                    exp_miss += 1
+                    if exp_miss == 15:
+                        print("Can't find the game window - is MapleStory open in GeForce NOW?")
+                else:
                     exp_miss = self._read_exp(frame, exp_miss)
                     meso_miss = self._read_meso(frame, meso_miss)
+                    if exp_miss == 0:
+                        diag.ok()
+                    else:
+                        diag.miss(frame)
+                        if exp_miss % 5 == 0 and meso_miss:
+                            cap.failed()
             except Exception as e:
                 print("read error:", e)
             self.stop.wait(max(0.2, self.s["sample_seconds"] - (time.time() - t0)))
