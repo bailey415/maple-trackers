@@ -21,22 +21,17 @@ jobs:
       - name: Install libraries
         run: python -m pip install pyinstaller mss opencv-python-headless numpy pywin32
 
-      - name: Build ExpTracker.exe
-        working-directory: exp tracker
-        run: python -m PyInstaller --onefile --noconfirm --name ExpTracker --add-data "dashboard.html;." exp_tracker.py
-
-      - name: Build MesosTracker.exe
-        working-directory: mesos tracker
-        run: python -m PyInstaller --onefile --noconfirm --name MesosTracker --add-data "dashboard.html;." meso_tracker.py
+      - name: Build MapleTracker.exe
+        working-directory: maple tracker
+        run: python -m PyInstaller --onefile --noconfirm --name MapleTracker --paths "../exp tracker" --paths "../mesos tracker" --hidden-import exp_tracker --hidden-import meso_tracker --add-data "dashboard.html;." maple_tracker.py
 
       - name: Package zip
         shell: pwsh
         run: |
-          $out = "release/Maple Trackers"
-          New-Item -ItemType Directory -Force "$out/EXP Tracker", "$out/Mesos Tracker" | Out-Null
-          Copy-Item "exp tracker/dist/ExpTracker.exe" "$out/EXP Tracker/"
-          Copy-Item "mesos tracker/dist/MesosTracker.exe" "$out/Mesos Tracker/"
-          Copy-Item "mesos tracker/meso_font.json" "$out/Mesos Tracker/"
+          $out = "release/Maple Tracker"
+          New-Item -ItemType Directory -Force "$out" | Out-Null
+          Copy-Item "maple tracker/dist/MapleTracker.exe" "$out/"
+          Copy-Item "mesos tracker/meso_font.json" "$out/"
           Copy-Item "packaging/HOW-TO-USE.txt" "$out/"
           Compress-Archive -Path "$out" -DestinationPath "release/MapleTrackers.zip" -Force
 
@@ -47,4 +42,4 @@ jobs:
         run: |
           gh release delete latest --yes --cleanup-tag 2>$null
           $global:LASTEXITCODE = 0
-          gh release create latest "release/MapleTrackers.zip" --title "Maple Trackers (Windows)" --notes "Download MapleTrackers.zip, unzip it, and double-click ExpTracker.exe or MesosTracker.exe. No Python needed. See HOW-TO-USE.txt inside."
+          gh release create latest "release/MapleTrackers.zip" --title "Maple Trackers (Windows)" --notes "Download MapleTrackers.zip, unzip it, and double-click MapleTracker.exe. EXP and mesos on one dashboard. No Python needed. See HOW-TO-USE.txt inside."

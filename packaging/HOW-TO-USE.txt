@@ -1,23 +1,20 @@
-MAPLE TRACKERS - no install needed
-==================================
+MAPLE TRACKER - no install needed
+=================================
 
-Two little apps that read YOUR character's numbers off the screen while
-you play MapleStory on GeForce NOW and show live stats in your browser.
+Reads YOUR character's EXP and mesos off the screen while you play
+MapleStory on GeForce NOW, and shows both on one live dashboard in your
+browser.
 
-EXP TRACKER  (folder "EXP Tracker")
-  1. Double-click ExpTracker.exe. A black window opens and your browser
-     shows the dashboard.
+HOW TO USE
+  1. Double-click MapleTracker.exe. A black window opens and your
+     browser shows the dashboard.
   2. Click the LV badge and type your level (only once). Click the name
      to type your character name.
-  3. Play. Keep the black window open. Close it to stop.
+  3. Open your inventory in game and leave it open to track mesos too.
+  4. Keep the black window open while you play. Close it to stop.
 
-MESOS TRACKER  (folder "Mesos Tracker")
-  1. Open your inventory in game and leave it open on screen.
-  2. Double-click MesosTracker.exe.
-  3. If the dashboard asks "Does your inventory say ...?", click Yes
-     (or type the real number and click Fix).
-
-Both can run at the same time.
+  If the mesos side asks "Does your inventory say ...?", click Yes
+  (or type the real number and click Fix).
 
 IF WINDOWS SAYS "Windows protected your PC"
   This happens with small apps that aren't from a big company.
@@ -25,5 +22,5 @@ IF WINDOWS SAYS "Windows protected your PC"
 
 TIPS
   - The game has to be visible on screen (not minimised or covered).
-  - Your stats are saved in a "data" folder next to each app, so closing
+  - Your stats are saved in a "data" folder next to the app, so closing
     and reopening keeps today's totals.

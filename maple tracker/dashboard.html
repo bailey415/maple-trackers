@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maple Tracker</title>
+<style>
+  :root {
+    --page: #2a2118;
+    --card: #fff8ec;
+    --ink: #3b2a1a;
+    --muted: #8a7560;
+    --head: #6b4423;
+    --head2: #4f301a;
+    --orange: #f29a1f;
+    --orange-dark: #c8740a;
+    --gold: #e8b923;
+    --gold-dark: #b8860b;
+    --line: #ead9bf;
+    --bar-bg: #e3d6c2;
+    --exp1: #c8e03a;
+    --exp2: #8fb613;
+    --green: #3fbf5a;
+    --grey: #a99b8a;
+    --red: #c4472c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--page); color: var(--ink);
+    font: 14px/1.4 "Segoe UI", system-ui, -apple-system, sans-serif;
+    padding: 28px 16px;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; }
+  .card { background: var(--card); border-radius: 14px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+
+  .head {
+    background: linear-gradient(var(--head), var(--head2)); color: #fff;
+    display: flex; align-items: center; gap: 14px; padding: 14px 18px; flex-wrap: wrap;
+  }
+  .lv { background: var(--orange); border: 2px solid #ffd08a; border-radius: 8px; min-width: 54px; padding: 3px 6px; text-align: center; cursor: pointer; line-height: 1.1; }
+  .lv small { display: block; font-size: 10px; font-weight: 700; letter-spacing: .08em; opacity: .9; }
+  .lv b { font-size: 20px; }
+  .who { flex: 1; min-width: 160px; }
+  .name { font-size: 18px; font-weight: 700; cursor: pointer; }
+  .status { font-size: 12px; opacity: .92; display: flex; gap: 14px; flex-wrap: wrap; margin-top: 2px; }
+  .status span { display: inline-flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--grey); display: inline-block; }
+  .dot.on { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .edit { display: none; gap: 6px; margin-top: 6px; }
+  .edit.show { display: flex; }
+  .edit input, .check input { font: inherit; width: 100%; padding: 4px 6px; border-radius: 6px; border: 1px solid #ffd08a; }
+  .edit button, .check button { font: inherit; border: 0; border-radius: 6px; background: var(--orange); color: #fff; padding: 4px 10px; cursor: pointer; white-space: nowrap; }
+  .wins { display: flex; gap: 6px; flex-wrap: wrap; }
+  .wins button, .tabs button {
+    font: inherit; border: 1px solid var(--line); background: #fff; color: var(--ink);
+    border-radius: 999px; padding: 4px 10px; cursor: pointer; font-weight: 600; font-size: 12px;
+  }
+  .head .wins button { border-color: transparent; background: rgba(255,255,255,.14); color: #fff; }
+  .wins button.on, .tabs button.on { background: var(--orange); border-color: var(--orange-dark); color: #fff; }
+  .head .wins button.on { background: var(--orange); }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+  @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+  .panel { padding: 16px; display: flex; flex-direction: column; }
+  .ptitle { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: .04em; }
+  .ptitle b { font-size: 13px; color: var(--ink); font-variant-numeric: tabular-nums; letter-spacing: 0; }
+  .bar { height: 12px; background: var(--bar-bg); border-radius: 6px; overflow: hidden; border: 1px solid #d3c2a6; margin-top: 6px; }
+  .bar i { display: block; height: 100%; width: 0; background: linear-gradient(var(--exp1), var(--exp2)); transition: width .6s; }
+  .meso-total { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .spark { margin: 14px 0 4px; height: 56px; width: 100%; display: block; }
+  .caption { font-size: 12px; color: var(--muted); }
+  .big { margin: 12px 0 2px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .big b { font-size: 36px; line-height: 1; font-variant-numeric: tabular-nums; }
+  .big span { font-size: 14px; font-weight: 600; color: var(--orange-dark); }
+  .sub { font-size: 12px; color: var(--muted); min-height: 18px; }
+  .tabs { display: flex; gap: 6px; margin-top: auto; padding-top: 14px; }
+  .tabs button { flex: 1; border-radius: 8px; padding: 6px 8px; font-size: 13px; }
+  .ups { margin-top: 8px; font-size: 12px; color: var(--muted); }
+  .ups div { padding: 2px 0; border-top: 1px dashed var(--line); }
+  .spent { color: var(--red); }
+  .check { display: none; margin: 0 0 12px; padding: 12px; border-radius: 10px; background: #fff1d6; border: 1px solid #f3c77a; }
+  .check.show { display: block; }
+  .check p { margin: 0 0 8px; font-size: 13px; }
+  .check img { display: block; max-width: 100%; image-rendering: pixelated; border-radius: 4px; margin-bottom: 8px; }
+  .check .row { display: flex; gap: 6px; }
+  .check .err { color: var(--red); font-size: 12px; margin-top: 6px; min-height: 1em; }
+  .check .note { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .foot { text-align: center; font-size: 11px; color: #bba68c; margin-top: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <div class="head">
+      <div class="lv" id="lv" title="Click to set your level"><small>LV</small><b id="lvn">?</b></div>
+      <div class="who">
+        <div class="name" id="name" title="Click to rename">…</div>
+        <div class="status">
+          <span><i class="dot" id="dotExp"></i><span id="statExp">EXP: waiting</span></span>
+          <span><i class="dot" id="dotMeso"></i><span id="statMeso">Mesos: waiting</span></span>
+        </div>
+        <div class="edit" id="edit"><input id="editIn" autocomplete="off"><button id="editOk">Save</button></div>
+      </div>
+      <div class="wins" id="wins"></div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- EXP -->
+    <div class="card panel">
+      <div class="ptitle"><span>EXP</span><b id="expTxt">—</b></div>
+      <div class="bar"><i id="expFill"></i></div>
+      <svg class="spark" id="expSpark" viewBox="0 0 400 56" preserveAspectRatio="none"></svg>
+      <div class="caption" id="expCap">—</div>
+      <div class="big"><b id="expBig">—</b><span id="expBigS"></span></div>
+      <div class="sub" id="expSub"></div>
+      <div class="ups" id="expUps"></div>
+      <div class="tabs" data-for="exp">
+        <button data-tab="rate">EXP/hour</button>
+        <button data-tab="today">Today</button>
+        <button data-tab="level">Level</button>
+      </div>
+    </div>
+
+    <!-- MESOS -->
+    <div class="card panel">
+      <div class="check" id="check">
+        <p>Quick check — still learning a few digits. Does your inventory say <b id="ckText"></b>?</p>
+        <img id="ckImg" alt="Meso box as the tracker sees it">
+        <div class="row">
+          <button id="ckYes">Yes</button>
+          <input id="ckIn" placeholder="No — it says…" autocomplete="off" inputmode="numeric">
+          <button id="ckFix">Fix</button>
+        </div>
+        <div class="err" id="ckErr"></div>
+        <div class="note" id="ckNote"></div>
+      </div>
+      <div class="ptitle"><span>MESOS</span></div>
+      <div class="meso-total" id="mesoTotal">—</div>
+      <svg class="spark" id="mesoSpark" viewBox="0 0 400 56" preserveAspectRatio="none"></svg>
+      <div class="caption" id="mesoCap">—</div>
+      <div class="big"><b id="mesoBig">—</b><span id="mesoBigS"></span></div>
+      <div class="sub" id="mesoSub"></div>
+      <div class="tabs" data-for="meso">
+        <button data-tab="rate">Mesos/hour</button>
+        <button data-tab="today">Today</button>
+        <button data-tab="spent">Spent</button>
+      </div>
+    </div>
+  </div>
+  <div class="foot">updates every 30s · <span id="ago"></span></div>
+</div>
+
+<script>
+const WINS = [5, 10, 15, 30];
+let win = 10, tabs = { exp: "rate", meso: "rate" }, S = null, editing = null, checkId = null;
+try {
+  win = +localStorage.getItem("win") || win;
+  tabs = Object.assign(tabs, JSON.parse(localStorage.getItem("tabs") || "{}"));
+} catch (e) {}
+const $ = id => document.getElementById(id);
+const save = () => { try { localStorage.setItem("win", win); localStorage.setItem("tabs", JSON.stringify(tabs)); } catch (e) {} };
+
+function short(n) {
+  if (n == null || !isFinite(n)) return "—";
+  const a = Math.abs(n), s = n < 0 ? "-" : "";
+  if (a >= 1e9) return s + (a / 1e9).toFixed(2) + "B";
+  if (a >= 1e6) return s + (a / 1e6).toFixed(a >= 1e8 ? 0 : 2) + "M";
+  if (a >= 1e3) return s + (a / 1e3).toFixed(a >= 1e5 ? 0 : 1) + "K";
+  return s + Math.round(a);
+}
+const comma = n => n == null ? "—" : Math.round(n).toLocaleString("en-US");
+function dur(s) {
+  if (s == null || !isFinite(s) || s < 0) return null;
+  s = Math.round(s / 60);
+  const d = Math.floor(s / 1440), h = Math.floor(s % 1440 / 60), m = s % 60;
+  if (d) return `${d}d ${h}h`;
+  return h ? `${h}h ${m}m` : `${m}m`;
+}
+const clock = t => new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+function spark(id, vals, color) {
+  const svg = $(id);
+  if (!vals || vals.length < 2) { svg.innerHTML = ""; return; }
+  const W = 400, H = 56, p = 3;
+  const lo = Math.min(0, ...vals), hi = Math.max(...vals, lo + 1);
+  const pts = vals.map((v, i) => [i * W / (vals.length - 1), H - p - (v - lo) / (hi - lo) * (H - 2 * p)]);
+  const line = pts.map((q, i) => (i ? "L" : "M") + q[0].toFixed(1) + " " + q[1].toFixed(1)).join(" ");
+  svg.innerHTML =
+    `<defs><linearGradient id="${id}g" x1="0" x2="0" y1="0" y2="1">
+       <stop offset="0" stop-color="${color}" stop-opacity=".38"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>
+     <path d="${line} L${W} ${H} L0 ${H} Z" fill="url(#${id}g)"/>
+     <path d="${line}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>`;
+}
+
+function renderExp(E) {
+  $("lvn").textContent = E.level ?? "?";
+  $("dotExp").className = "dot" + (E.on_screen ? " on" : "");
+  $("statExp").textContent = E.on_screen ? "EXP: on screen" : (E.last_seen ? "EXP: not visible" : "EXP: waiting for game");
+  $("expTxt").textContent = E.exp == null ? "—" : `${comma(E.exp)} [${E.pct.toFixed(2)}%]`;
+  $("expFill").style.width = (E.pct || 0) + "%";
+  const r = E.rates[win] || {}, eta = dur(r.eta_s), tab = tabs.exp;
+  $("expCap").textContent = `${short(E.today.exp)} today` + (eta ? ` · next level in ${eta}` : "");
+  $("expUps").innerHTML = "";
+  if (tab === "rate") {
+    $("expBig").textContent = short(r.exp_h);
+    $("expBigS").textContent = r.pct_h == null ? "" : r.pct_h.toFixed(2) + "%/h";
+    $("expSub").textContent = r.exp_h == null ? "Collecting data — play for a minute"
+      : `${comma(r.gain)} EXP over ${Math.max(1, Math.round(r.minutes))} min · last ${win}m`;
+    spark("expSpark", E.rate_spark, "#e0850c");
+  } else if (tab === "today") {
+    $("expBig").textContent = short(E.today.exp);
+    $("expBigS").textContent = E.today.pct == null ? "" : E.today.pct.toFixed(2) + "% of a level";
+    const played = dur(E.today.minutes * 60);
+    $("expSub").textContent = `${comma(E.today.exp)} EXP` + (played ? ` · ${played} played today` : "");
+    spark("expSpark", E.today.spark, "#e0850c");
+  } else {
+    $("expBig").textContent = E.level ?? "?";
+    $("expBigS").textContent = E.pct == null ? "" : E.pct.toFixed(2) + "%";
+    const left = E.need && E.exp != null ? E.need - E.exp : null;
+    $("expSub").textContent = left == null ? "Click the LV badge to set your level"
+      : `${comma(left)} EXP to level ${E.level ? E.level + 1 : "up"}` + (eta ? ` · about ${eta}` : "");
+    const ups = E.today.levelups;
+    $("expUps").innerHTML = ups.length ? ups.slice().reverse().map(u => `<div>${clock(u.t)} — reached LV ${u.level ?? "+1"}</div>`).join("") : "";
+    spark("expSpark", E.today.spark, "#e0850c");
+  }
+}
+
+function renderMeso(M) {
+  $("dotMeso").className = "dot" + (M.on_screen ? " on" : "");
+  $("statMeso").textContent = M.on_screen ? "Mesos: inventory on screen" : (M.last_seen ? "Mesos: open your inventory" : "Mesos: open your inventory");
+  $("mesoTotal").textContent = comma(M.mesos);
+  const r = M.rates[win] || {}, tab = tabs.meso;
+  $("mesoCap").textContent = `${short(M.today.gained)} today` + (M.today.spent ? ` · ${short(M.today.spent)} spent` : "");
+  if (tab === "rate") {
+    $("mesoBig").textContent = short(r.per_h);
+    $("mesoBigS").textContent = r.per_h == null ? "" : "mesos/h";
+    $("mesoSub").textContent = r.per_h == null ? "Collecting data — keep your inventory open"
+      : `${comma(r.gained)} mesos over ${Math.max(1, Math.round(r.minutes))} min · last ${win}m`;
+    spark("mesoSpark", M.rate_spark, "#c8920a");
+  } else if (tab === "today") {
+    $("mesoBig").textContent = short(M.today.gained);
+    $("mesoBigS").textContent = "picked up today";
+    const played = dur(M.today.minutes * 60);
+    $("mesoSub").innerHTML = `${comma(M.today.gained)} gained · <span class="spent">${comma(M.today.spent)} spent</span> · net ${comma(M.today.net)}` + (played ? ` · ${played}` : "");
+    spark("mesoSpark", M.today.spark, "#c8920a");
+  } else {
+    $("mesoBig").textContent = short(M.today.spent);
+    $("mesoBigS").textContent = "spent today";
+    $("mesoSub").textContent = `Last ${win}m: ${comma(r.spent)} spent · net today ${comma(M.today.net)}`;
+    spark("mesoSpark", M.today.spark, "#c8920a");
+  }
+  const c = M.check;
+  if (c) {
+    if (c.id !== checkId) {
+      checkId = c.id;
+      $("ckText").textContent = c.text;
+      $("ckImg").src = "data:image/png;base64," + c.img;
+      $("ckIn").value = ""; $("ckErr").textContent = "";
+    }
+    $("ckNote").textContent = `Digits still to learn: ${M.missing_digits.join(" ")}.`;
+    $("check").classList.add("show");
+  } else {
+    $("check").classList.remove("show");
+  }
+}
+
+function render() {
+  if (!S) return;
+  $("name").textContent = S.name || "My character";
+  $("wins").innerHTML = WINS.map(m => `<button data-win="${m}" class="${m === win ? "on" : ""}">last ${m}m</button>`).join("");
+  document.querySelectorAll(".tabs").forEach(t => t.querySelectorAll("button").forEach(b =>
+    b.classList.toggle("on", b.dataset.tab === tabs[t.dataset.for])));
+  renderExp(S.exp);
+  renderMeso(S.mesos);
+  tickAgo();
+}
+
+function tickAgo() {
+  if (!S) return;
+  const last = Math.max(S.exp.last_seen || 0, S.mesos.last_seen || 0);
+  if (!last) { $("ago").textContent = "waiting for the game"; return; }
+  const s = Math.max(0, Math.round(Date.now() / 1000 - last));
+  $("ago").textContent = s < 5 ? "reading live" : `last read ${s >= 60 ? dur(s) : s + "s"} ago`;
+}
+
+async function load() {
+  try {
+    const res = await fetch("/api/state", { cache: "no-store" });
+    S = await res.json();
+    render();
+  } catch (e) {
+    $("statExp").textContent = "Tracker not running";
+    $("dotExp").className = "dot"; $("dotMeso").className = "dot";
+  }
+}
+
+$("wins").onclick = e => { const b = e.target.closest("button"); if (!b) return; win = +b.dataset.win; save(); render(); };
+document.querySelectorAll(".tabs").forEach(t => t.onclick = e => {
+  const b = e.target.closest("button"); if (!b) return;
+  tabs[t.dataset.for] = b.dataset.tab; save(); render();
+});
+
+function openEdit(what) {
+  editing = what;
+  $("edit").classList.add("show");
+  $("editIn").type = what === "level" ? "number" : "text";
+  $("editIn").placeholder = what === "level" ? "Your level, e.g. 47" : "Character name";
+  $("editIn").value = what === "level" ? (S && S.exp.level || "") : (S && S.name || "");
+  $("editIn").focus(); $("editIn").select();
+}
+async function saveEdit() {
+  const v = $("editIn").value.trim();
+  if (v) await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(editing === "level" ? { level: +v } : { name: v }) });
+  $("edit").classList.remove("show"); load();
+}
+$("lv").onclick = () => openEdit("level");
+$("name").onclick = () => openEdit("name");
+$("editOk").onclick = saveEdit;
+$("editIn").onkeydown = e => { if (e.key === "Enter") saveEdit(); if (e.key === "Escape") $("edit").classList.remove("show"); };
+
+async function confirmRead(text) {
+  $("ckErr").textContent = "";
+  const res = await fetch("/api/confirm", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: checkId, text }) });
+  if (!res.ok) $("ckErr").textContent = await res.text();
+  load();
+}
+$("ckYes").onclick = () => confirmRead($("ckText").textContent);
+$("ckFix").onclick = () => { const v = $("ckIn").value.trim(); if (v) confirmRead(v); };
+$("ckIn").onkeydown = e => { if (e.key === "Enter") $("ckFix").click(); };
+
+load();
+setInterval(load, 30000);
+setInterval(tickAgo, 1000);
+setInterval(() => { if (S && S.mesos.check) load(); }, 3000);
+</script>
+</body>
+</html>
