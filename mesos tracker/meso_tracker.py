@@ -31,7 +31,7 @@ SETTINGS = HERE / "tracker_settings.json"
 FONT = HERE / "meso_font.json"
 
 DEFAULTS = {
-    "name": "Sold",
+    "name": "My character",
     "port": 8766,
     "window_titles": ["GeForce NOW", "MapleStory"],
     "sample_seconds": 2.0,

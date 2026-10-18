@@ -1,0 +1,50 @@
+name: Build Windows apps
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install libraries
+        run: python -m pip install pyinstaller mss opencv-python-headless numpy pywin32
+
+      - name: Build ExpTracker.exe
+        working-directory: exp tracker
+        run: python -m PyInstaller --onefile --noconfirm --name ExpTracker --add-data "dashboard.html;." exp_tracker.py
+
+      - name: Build MesosTracker.exe
+        working-directory: mesos tracker
+        run: python -m PyInstaller --onefile --noconfirm --name MesosTracker --add-data "dashboard.html;." meso_tracker.py
+
+      - name: Package zip
+        shell: pwsh
+        run: |
+          $out = "release/Maple Trackers"
+          New-Item -ItemType Directory -Force "$out/EXP Tracker", "$out/Mesos Tracker" | Out-Null
+          Copy-Item "exp tracker/dist/ExpTracker.exe" "$out/EXP Tracker/"
+          Copy-Item "mesos tracker/dist/MesosTracker.exe" "$out/Mesos Tracker/"
+          Copy-Item "mesos tracker/meso_font.json" "$out/Mesos Tracker/"
+          Copy-Item "packaging/HOW-TO-USE.txt" "$out/"
+          Compress-Archive -Path "$out" -DestinationPath "release/MapleTrackers.zip" -Force
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag 2>$null
+          $global:LASTEXITCODE = 0
+          gh release create latest "release/MapleTrackers.zip" --title "Maple Trackers (Windows)" --notes "Download MapleTrackers.zip, unzip it, and double-click ExpTracker.exe or MesosTracker.exe. No Python needed. See HOW-TO-USE.txt inside."
