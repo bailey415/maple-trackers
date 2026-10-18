@@ -244,8 +244,31 @@ def read_any_size(frame):
     y0 = int(h * 0.5)
     sub = frame[y0:].astype(np.int16)
     B, G, R = sub[..., 0], sub[..., 1], sub[..., 2]
-    tops = _bar_tops((G > 150) & (R > 110) & (B < 90) & (G >= R), y0, 8)
-    return any_size.find_exp_text(frame, tops, _ANY_TEMPLATES)
+    yg = (G > 150) & (R > 110) & (B < 90) & (G >= R)
+    # snap each candidate to the true top-left corner of its yellow-green fill
+    corners, seen = [], set()
+    for y, x in _bar_tops(yg, y0, 8):
+        yy, xx = y - y0, x
+        for _ in range(200):
+            moved = False
+            if yy > 0 and yg[yy - 1, xx]:
+                yy -= 1
+                moved = True
+            if xx > 0 and yg[yy, xx - 1]:
+                xx -= 1
+                moved = True
+            if not moved:
+                break
+        c = (yy + y0, xx)
+        if c not in seen:
+            seen.add(c)
+            # how long is the fill along its top row? long ones first
+            run = 0
+            while xx + run < yg.shape[1] and yg[yy, xx + run]:
+                run += 1
+            corners.append((run, c))
+    corners.sort(key=lambda t: -t[0])
+    return any_size.find_exp_text(frame, [c for _, c in corners], _ANY_TEMPLATES)
 
 
 class ExpReader:

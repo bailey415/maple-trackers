@@ -21,7 +21,7 @@ MESO_RE = re.compile(r'^\d{1,3}(,\d{3})*$')
 
 def _norm(img):
     """Tight-crop a glyph (float 0..1, ink=1) and resize it to BOX."""
-    ys, xs = np.where(img > 0.35)
+    ys, xs = np.where(img > 0.5)
     if len(ys) == 0:
         return None
     g = img[ys.min():ys.max() + 1, xs.min():xs.max() + 1].astype(np.float32)
@@ -52,8 +52,17 @@ def _digit_templates(bitmaps):
 
 
 def _segments(ink, min_gap=1):
-    """Column runs of ink (start, end), split at blank columns."""
-    cols = ink.max(0) > 0.35
+    """Column runs of ink (start, end), split where a column is (nearly) empty.
+
+    'Nearly empty' is judged by how much ink the column holds compared with
+    a typical inked column, so blur bridging two characters doesn't join them.
+    """
+    sums = (ink * (ink > 0.25)).sum(0)
+    inked = sums[sums > 0]
+    if len(inked) == 0:
+        return []
+    ref = np.percentile(inked, 75)
+    cols = sums > max(0.5, 0.18 * ref)
     segs, x = [], 0
     while x < len(cols):
         if cols[x]:
@@ -66,13 +75,52 @@ def _segments(ink, min_gap=1):
     return segs
 
 
+def _split_wide(ink, segs):
+    """Split blobs that are really two or three characters stuck together."""
+    rows = np.where(ink.max(1) > 0.35)[0]
+    if len(rows) == 0:
+        return segs
+    dh = rows.max() - rows.min() + 1
+    widths = sorted(e - s for s, e in segs if e - s >= 0.45 * dh)
+    if not widths:
+        return segs
+    small = [w for w in widths if w <= widths[0] * 1.4]
+    dw = small[len(small) // 2]                  # a single digit's width
+    sums = (ink * (ink > 0.25)).sum(0)
+    out = []
+    for s, e in segs:
+        w = e - s
+        n = int(round(w / (dw * 1.15)))
+        if w > dw * 1.6 and n >= 2:
+            cuts = [s]
+            for k in range(1, n):
+                target = s + w * k / n
+                lo_, hi_ = int(target - dw * 0.35), int(target + dw * 0.35) + 1
+                lo_, hi_ = max(cuts[-1] + 2, lo_), min(e - 2, hi_)
+                if hi_ <= lo_:
+                    break
+                c = lo_ + int(np.argmin(sums[lo_:hi_]))
+                cuts.append(c)
+            cuts.append(e)
+            for a, b in zip(cuts, cuts[1:]):
+                # trim the bridging column(s) off each piece
+                while b - a > 1 and sums[a] < 0.35 * sums[a:b].max():
+                    a += 1
+                while b - a > 1 and sums[b - 1] < 0.35 * sums[a:b].max():
+                    b -= 1
+                out.append([a, b])
+        else:
+            out.append([s, e])
+    return out
+
+
 def read_line(ink, templates, kind):
     """Read one line of text. ink: float 0..1 (1 = text), rows = the line.
 
     kind 'exp' expects 123,456[12.34%], kind 'meso' expects 1,234,567.
     Returns the text or None.
     """
-    segs = _segments(ink)
+    segs = _split_wide(ink, _segments(ink))
     if len(segs) < 2:
         return None
     rows_any = np.where(ink.max(1) > 0.35)[0]
@@ -82,7 +130,9 @@ def read_line(ink, templates, kind):
     info = []
     for s, e in segs:
         g = ink[:, s:e]
-        ys = np.where(g.max(1) > 0.35)[0]
+        ys = np.where(g.max(1) > 0.5)[0]
+        if len(ys) == 0:
+            continue                             # only a faint smudge
         info.append((s, e, ys.min(), ys.max()))
     heights = sorted(b - a + 1 for s, e, a, b in info if e - s >= 3)
     if not heights:
@@ -116,13 +166,26 @@ def read_line(ink, templates, kind):
         pool = "1[]" if narrow else "0123456789"
         if kind == 'meso':
             pool = "1" if narrow else "0123456789"
-        best = sorted(((max(float((n * t).sum()) for t in ts), ch)
-                       for ch, ts in templates.items() if ch in pool), reverse=True)
-        if not best or best[0][0] < 0.5:
+        scored = []
+        for ch, ts in templates.items():
+            if ch in pool:
+                sc = [float((n * t).sum()) for t in ts]
+                k = int(np.argmax(sc))
+                scored.append((sc[k], ch, ts[k]))
+        scored.sort(key=lambda t: -t[0])
+        if not scored or scored[0][0] < 0.4:
             return None
-        if len(best) > 1 and best[0][0] - best[1][0] < 0.03:
-            return None
-        text += best[0][1]
+        pick = scored[0]
+        if len(scored) > 1 and scored[0][0] - scored[1][0] < 0.06:
+            # Close call (say 8 vs 6): look only at the pixels where those
+            # two characters differ, which is a much sharper test.
+            a_, b_ = scored[0], scored[1]
+            diff = a_[2] - b_[2]
+            d = float((n * diff).sum()) / (np.linalg.norm(diff) + 1e-6)
+            if abs(d) < 0.08:
+                return None
+            pick = a_ if d > 0 else b_
+        text += pick[1]
     if kind == 'exp':
         if ']' in text:
             text = text[:text.index(']') + 1]
@@ -184,7 +247,18 @@ def find_exp_text(frame, bar_tops, templates):
         if not rows:
             continue
         tail = max(2, (rows[1] - rows[0]) // 3)     # room for a comma's tail
-        line = ink[rows[0]:min(ink.shape[0], rows[1] + tail)]
+        # re-measure brightness on just this line: the bold white label
+        # otherwise sets the scale and the greyer digits come out faint
+        raw = region[rows[0]:min(region.shape[0], rows[1] + tail)].max(2).astype(np.float32)
+        lo, hi = np.percentile(raw, 45), np.percentile(raw, 93)
+        if hi - lo < 40:
+            continue
+        line = np.clip((raw - lo) / (hi - lo), 0, 1)
+        # drop solid rows (the bar's border creeping in under the text)
+        keep = (line > 0.5).mean(1) < 0.5
+        line = line[keep]
+        if line.shape[0] < 5:
+            continue
         segs = _segments(line)
         if len(segs) < 6:
             continue
@@ -192,8 +266,8 @@ def find_exp_text(frame, bar_tops, templates):
         # start higher than the digits; failing that, it ends at a wide gap.
         tops = []
         for a, b in segs:
-            ys = np.where(line[:, a:b].max(1) > 0.35)[0]
-            tops.append(ys.min())
+            ys = np.where(line[:, a:b].max(1) > 0.25)[0]
+            tops.append(ys.min() if len(ys) else line.shape[0])
         later = sorted(tops[len(segs) // 3:])
         digit_top = later[len(later) // 2]
         cut = None
